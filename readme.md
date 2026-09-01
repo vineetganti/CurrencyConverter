@@ -294,4 +294,4 @@ Every step above maps directly to a concept from Section 4 — the lifecycle hoo
 
 ---
 
-*Last updated: [DATE PLACEHOLDER]. Contributions welcome!*
+*Last updated: September 1st 2026*
