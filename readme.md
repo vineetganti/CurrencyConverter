@@ -22,18 +22,19 @@ That's it. No internet connection, no database, no saved state — just input �
 
 **By the end of this README you'll understand:**
 - How an Android `Activity` is structured and what `onCreate()` actually does
+- How `ConstraintLayout` positions views without nesting layouts inside layouts
 - How Kotlin code finds and talks to on-screen views (`findViewById`)
 - Why `lateinit var` exists and what breaks if you misuse it
 - How button clicks are wired up with listeners
-- How raw text input gets converted into a number — and where that's fragile
+- How raw text input gets converted into a number — and a real bug hiding in the interaction between the layout and the code
 - What "edge-to-edge" display means and a subtle bug hiding in this exact file
 - Where this app's architecture would need to grow if it became a "real" production app
 
 **Prerequisites:** basic Kotlin syntax (variables, functions, classes). No prior Android experience needed.
 
-**Estimated reading time:** ~15 minutes.
+**Estimated reading time:** ~17 minutes.
 
-💡 **Tip:** This app is small enough that you can read the entire source in 30 seconds. Do that now, then come back — the rest of this document will make a lot more sense once you've seen the whole shape of it.
+💡 **Tip:** This app is small enough that you can read the entire source in under a minute. Do that now, then come back — the rest of this document will make a lot more sense once you've seen the whole shape of it.
 
 ```kotlin
 package com.vineetganti.currencyconverter
@@ -68,8 +69,9 @@ Think of this app as a **single-waiter diner**:
 - **`MainActivity`** is the one waiter who does *everything* — takes the order, walks to the kitchen, cooks it, brings it back.
 - **`makeConversion()`** is the kitchen — a tiny one, with exactly one recipe (multiply by 0.95).
 - The **`resultTextView`** is the plate the finished dish comes back on.
+- The **XML layout** is the diner's floor plan — where the sign, the counter, the bell, and the specials board physically sit, before any customer ever walks in.
 
-In a bigger restaurant (a bigger app), you'd split these jobs up: a host, a waiter, a chef, a supplier who delivers fresh ingredients (live exchange rates) every morning. Here, one person does it all — which is fine for a one-table diner, but wouldn't scale to a busy restaurant. Keep that image in mind; it'll matter in [Section 7](#7-suggested-enhancements).
+In a bigger restaurant (a bigger app), you'd split the jobs up: a host, a waiter, a chef, a supplier who delivers fresh ingredients (live exchange rates) every morning. Here, one person does it all — which is fine for a one-table diner, but wouldn't scale to a busy restaurant. Keep that image in mind; it'll matter in [Section 7](#7-suggested-enhancements).
 
 ### Data flow diagram
 
@@ -93,14 +95,15 @@ flowchart LR
 
 ## 3. Project Structure
 
-Only one source file was shared with me, so this section reflects exactly that:
-
 ```
 com.vineetganti.currencyconverter/
-└── MainActivity.kt      # The entire app: UI wiring + conversion logic
+├── MainActivity.kt          # UI wiring + conversion logic
+└── res/
+    └── layout/
+        └── activity_main.xml   # The screen's visual layout (ConstraintLayout)
 ```
 
-⚠️ **Not included in what you shared:** `activity_main.xml` (the layout file) and `build.gradle` (dependency declarations). The code *references* four views by ID — `textView`, `resultText`, `editText`, `convertBTN` — which tells us the layout must define at least these four elements, but I can't show you their exact XML attributes without that file. If you want that section written accurately, share `activity_main.xml` too.
+⚠️ **Not included:** `build.gradle` (dependency declarations), `colors.xml` (defines `@color/white`), and the `background` drawable referenced by the layout. None of those affect the logic this README teaches, so they're not blocking — but if you want the "Gradle dependencies" and exact color/drawable values covered accurately, share those too.
 
 **Standard Android convention reminder:** Kotlin/Java code lives under `app/src/main/java/<package>/`, and layout XML lives under `app/src/main/res/layout/`. `R.layout.activity_main` and `R.id.textView` are auto-generated references Android's build tools create *from* that XML — you never write the `R` class by hand.
 
@@ -134,7 +137,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
     // view setup + click listener happen here
 }
 ```
-The critical line is `setContentView(R.layout.activity_main)` — this is the moment the XML layout is "inflated" (turned into actual on-screen objects) and attached to this Activity. Nothing below that line would work without it — `findViewById` would have nothing to find.
+The critical line is `setContentView(R.layout.activity_main)` — this is the moment the XML layout below is "inflated" (turned into actual on-screen objects) and attached to this Activity. Nothing below that line would work without it — `findViewById` would have nothing to find.
 
 ⚠️ **Common pitfalls:**
 - Forgetting `super.onCreate(savedInstanceState)` — this is required boilerplate; skipping it causes a crash.
@@ -142,9 +145,47 @@ The critical line is `setContentView(R.layout.activity_main)` — this is the mo
 
 ---
 
-### 🧠 4.2 Finding Views: `findViewById` and `lateinit var`
+### 🧠 4.2 XML Layouts: `ConstraintLayout`
 
-**Plain English:** Your XML layout describes *what* views look like; your Kotlin code needs a *handle* to actually talk to them (change their text, read their input). `findViewById` walks the inflated layout tree and hands you that handle.
+**Plain English:** Every screen needs a way to say "this view goes *here*, relative to that other view." `ConstraintLayout` does this with **constraints** — rules like "pin my top edge to your bottom edge" — rather than nesting boxes inside boxes inside boxes.
+
+**Why does it exist?** The analogy: imagine hanging a picture using elastic strings pinned to four points on the wall — the string lengths and anchor points determine exactly where the picture settles, without needing a shelf, frame, or stand underneath it. Older Android layouts (`LinearLayout`, `RelativeLayout`) often required nesting layouts inside layouts to achieve a design, which made the screen slower to draw and harder to read. `ConstraintLayout` lets you build flat, single-level hierarchies even for complex screens.
+
+**How this app uses it — read the actual constraints:**
+```xml
+<TextView android:id="@+id/textView" ... 
+    app:layout_constraintTop_toTopOf="parent" />
+
+<EditText android:id="@+id/editText" ...
+    app:layout_constraintTop_toBottomOf="@+id/textView" />
+
+<Button android:id="@+id/convertBTN" ...
+    app:layout_constraintTop_toBottomOf="@+id/editText" />
+
+<TextView android:id="@+id/resultText" ...
+    app:layout_constraintBottom_toBottomOf="parent" />
+```
+Read that as a chain: **title pinned to the top of the screen → input field pinned below the title → button pinned below the input field → result text pinned to the bottom of the screen.** Every view is horizontally centered with `app:layout_constraintStart_toStartOf="parent"` + `app:layout_constraintEnd_toEndOf="parent"` — two opposing constraints of equal "pull" is how ConstraintLayout centers something, the same way two equal-strength magnets on either side hold an object in the middle.
+
+```mermaid
+flowchart TD
+    Parent[Parent ConstraintLayout] -->|top| TextView["textView (title)"]
+    TextView -->|top_toBottomOf, +136dp margin| EditText["editText"]
+    EditText -->|top_toBottomOf, +80dp margin| Button["convertBTN"]
+    Parent -->|bottom, +124dp margin| ResultText["resultText"]
+```
+
+🔑 **Key idea:** the margins (`layout_marginTop="136dp"`, `layout_marginBottom="124dp"`) are *fixed pixel-density-independent distances*. They were almost certainly tuned by eyeballing one device/emulator size — which is exactly why they're worth watching in Section 7's enhancements.
+
+⚠️ **Common pitfalls:**
+- A view with constraints only on one side (e.g., only `layout_constraintTop_toTopOf`) but no width/height resolution can render in an unexpected position — always give ConstraintLayout enough information to solve both axes.
+- Large fixed `dp` margins (like the 136dp and 124dp here) can look right on one screen size and push content off-screen or awkwardly on a much smaller or larger phone.
+
+---
+
+### 🧠 4.3 Finding Views: `findViewById` and `lateinit var`
+
+**Plain English:** Your XML layout describes *what* views look like; your Kotlin code needs a *handle* to actually talk to them (change their text, read their input). `findViewById` walks the inflated layout tree and hands you that handle, matched by the `android:id` you saw in the XML above.
 
 **Why `lateinit var`?** Kotlin requires every non-nullable property to have a value immediately — but these views literally don't exist until `setContentView` runs inside `onCreate`. `lateinit` is a promise to the compiler: *"trust me, I'll assign this before anyone tries to use it."*
 
@@ -162,7 +203,7 @@ titleTextView = findViewById(R.id.textView)
 
 ---
 
-### 🧠 4.3 Click Listeners
+### 🧠 4.4 Click Listeners
 
 **Plain English:** A listener is a piece of code you hand to Android saying *"whenever this specific thing happens, run this."* It's like leaving a note with the front desk: "when this customer arrives, call me."
 
@@ -177,13 +218,15 @@ convertButton.setOnClickListener {
 
 **Why this pattern?** The button doesn't know what "convert currency" means — and it shouldn't. Its only job is detecting taps. Your Activity supplies the *meaning* of a tap via the lambda passed to `setOnClickListener`.
 
-⚠️ **Common pitfalls (this is the important one):**
-- `enterUSD.toDouble()` will **crash the app** if the user leaves the field empty or types letters — `"abc".toDouble()` throws a `NumberFormatException`. There's no validation here yet. This is the single most likely bug a tester would hit in five seconds of use.
-- 🐛 **Debug tip:** if this app crashes on tapping Convert, check Logcat for `NumberFormatException` first — it's almost certainly an empty or non-numeric `EditText`.
+⚠️ **Common pitfalls — now with the real layout, there are two stacked bugs here:**
+1. **Empty input:** if the user taps Convert without typing anything, `"".toDouble()` throws `NumberFormatException` and the app crashes. Nothing in the layout or code guards against this.
+2. **The `inputType="number"` mismatch:** the XML sets `android:inputType="number"` on the `EditText`, which restricts the on-screen keyboard to **whole digits only — no decimal point, no minus sign**. That means a user physically cannot type "10.50" using this keyboard, even though the code parses the result as a `Double` (which supports decimals). This isn't a crash — it's a quiet UX gap: the code was written expecting decimal USD amounts, but the layout's keyboard can't produce them. (`android:inputType="numberDecimal"` is the fix — see Section 7.)
+
+💡 **Debug tip:** if this app crashes on tapping Convert, check Logcat for `NumberFormatException` first — it's almost certainly an empty `EditText`.
 
 ---
 
-### 🧠 4.4 The Conversion Function
+### 🧠 4.5 The Conversion Function
 
 ```kotlin
 fun makeConversion(usd: Double): Double {
@@ -198,7 +241,7 @@ fun makeConversion(usd: Double): Double {
 
 ---
 
-### 🧠 4.5 Edge-to-Edge Display (and a hidden gotcha)
+### 🧠 4.6 Edge-to-Edge Display (and a hidden gotcha)
 
 **Plain English:** Modern Android phones want apps to draw content behind the status bar and navigation bar for a more immersive look, rather than leaving black bars around them. `enableEdgeToEdge()` opts your Activity into that behavior.
 
@@ -209,7 +252,7 @@ import androidx.core.view.WindowInsetsCompat
 enableEdgeToEdge()
 ```
 
-⚠️ **Gotcha spotted in this exact file:** `ViewCompat` and `WindowInsetsCompat` are **imported but never used**. Normally, `enableEdgeToEdge()` needs to be paired with an insets listener (using exactly those two classes) to push your content below the status bar so buttons and text don't get physically covered by it. Without that listener, on some devices your top view (`titleTextView`) may render partially underneath the status bar.
+⚠️ **Gotcha spotted in this exact file:** `ViewCompat` and `WindowInsetsCompat` are **imported but never used**. Normally, `enableEdgeToEdge()` needs to be paired with an insets listener (using exactly those two classes) to push your content below the status bar so it doesn't get physically covered. Without that listener, the title `textView` — which is only pinned `25dp` from the parent's top edge — is a strong candidate for rendering partially underneath the status bar on some devices. This risk is now more concrete than before: we know the layout also sets a full-screen `android:background="@drawable/background"`, so the whole screen (status bar area included) will visibly show that background image, making a status-bar overlap easy to miss visually and easy to spot if you know to look for it.
 
 💡 **Tip:** This is a great "find the bug" exercise — the imports are a strong hint that a `ViewCompat.setOnApplyWindowInsetsListener(...)` call was intended but never added.
 
@@ -223,15 +266,17 @@ enableEdgeToEdge()
 sequenceDiagram
     participant User
     participant Android OS
+    participant activity_main.xml
     participant MainActivity
     participant makeConversion
 
     Android OS->>MainActivity: onCreate() called
     MainActivity->>MainActivity: enableEdgeToEdge()
-    MainActivity->>MainActivity: setContentView(activity_main)
+    MainActivity->>activity_main.xml: setContentView() inflates layout
+    activity_main.xml-->>MainActivity: ConstraintLayout tree ready
     MainActivity->>MainActivity: findViewById x4
     MainActivity->>MainActivity: setOnClickListener registered
-    User->>MainActivity: types "10" into EditText
+    User->>MainActivity: types "10" into EditText (digit-only keyboard)
     User->>MainActivity: taps Convert button
     MainActivity->>MainActivity: editText.text.toString() -> "10"
     MainActivity->>MainActivity: "10".toDouble() -> 10.0
@@ -240,7 +285,7 @@ sequenceDiagram
     MainActivity->>User: resultTextView shows "9.5 Euros"
 ```
 
-Every step above maps directly to a concept from Section 4 — the lifecycle hook (4.1), the view handles (4.2), the listener (4.3), and the pure calculation (4.4).
+Every step above maps directly to a concept from Section 4 — the lifecycle hook (4.1), the inflated layout (4.2), the view handles (4.3), the listener and its keyboard mismatch (4.4), and the pure calculation (4.5).
 
 ---
 
@@ -248,14 +293,18 @@ Every step above maps directly to a concept from Section 4 — the lifecycle hoo
 
 - **Activity** — a single screen in an Android app, with its own lifecycle managed by the OS.
 - **`AppCompatActivity`** — a base Activity class from AndroidX that adds backward-compatible support for modern UI features on older Android versions.
+- **Constraint** — a rule pinning one view's edge to another view's edge (or the parent's edge) in `ConstraintLayout`.
+- **`ConstraintLayout`** — a flat, single-level layout system that positions views using constraints instead of nesting.
+- **`dp` (density-independent pixel)** — a unit of measurement that scales consistently across different screen densities.
 - **Edge-to-edge** — a display mode where app content draws behind the system status/navigation bars.
 - **`findViewById`** — a method that retrieves a reference to a view defined in XML, by its ID.
+- **`inputType`** — an XML attribute controlling which on-screen keyboard layout an `EditText` shows, and which characters it accepts.
 - **Inflate / Inflation** — the process of turning an XML layout file into live view objects in memory.
 - **`lateinit`** — a Kotlin modifier allowing a non-nullable property to be assigned after declaration, before first use.
 - **Lifecycle** — the sequence of states (`onCreate`, `onStart`, `onResume`, etc.) an Activity moves through.
 - **Listener** — a callback registered to run when a specific event occurs (e.g., a click).
 - **`NumberFormatException`** — a runtime crash thrown when parsing a non-numeric String to a number type.
-- **`R` class** — an auto-generated Kotlin/Java class mapping resource names (layouts, IDs, strings) to integer constants.
+- **`R` class** — an auto-generated Kotlin/Java class mapping resource names (layouts, IDs, strings, colors, drawables) to integer constants.
 - **`setContentView`** — the call that attaches an inflated layout to an Activity.
 
 ---
@@ -263,13 +312,16 @@ Every step above maps directly to a concept from Section 4 — the lifecycle hoo
 ## 7. Suggested Enhancements
 
 ### 🟢 Beginner additions
+- **Fix the `inputType`/`Double` mismatch** — change `android:inputType="number"` to `android:inputType="numberDecimal"` so users can actually enter cents. *Files:* `activity_main.xml`. *New concept:* `inputType` variants (`numberSigned`, `numberDecimal`, `textEmail`, etc.).
 - **Input validation** — check for empty/non-numeric input before calling `.toDouble()`, and show an error message instead of crashing. *Files:* `MainActivity.kt`. *New concept:* `try/catch`, or Kotlin's `toDoubleOrNull()`.
 - **Multiple currencies** — add a `Spinner` or dropdown to pick from EUR, GBP, JPY, each with its own rate. *Files:* `MainActivity.kt`, `activity_main.xml`. *New concept:* `when` expressions, `AdapterView.OnItemSelectedListener`.
 - **Decimal formatting** — round the result to 2 decimal places instead of showing raw `Double` precision. *New concept:* `String.format()` or `"%.2f".format(euro)`.
 
 ### 🟡 Intermediate additions
+- **Fix the edge-to-edge insets gap** — add the `ViewCompat.setOnApplyWindowInsetsListener` call the imports suggest was intended, so `textView` never sits under the status bar. *Files:* `MainActivity.kt`. *New concept:* `WindowInsetsCompat`, safe-area padding.
 - **ViewModel + configuration change survival** — currently, rotating the phone re-runs `onCreate` and loses any in-progress state. Moving the conversion logic into a `ViewModel` would let it survive rotation. *Files:* new `MainViewModel.kt`. *New concept:* `ViewModel`, `LiveData`/`StateFlow`.
 - **View Binding** — replace manual `findViewById` calls with Android's View Binding for compile-time-safe view references. *Files:* `build.gradle`, `MainActivity.kt`. *New concept:* generated `ActivityMainBinding` class.
+- **Responsive margins** — replace the fixed `136dp`/`124dp` top/bottom margins with percentage-based or bias-based constraints so the layout adapts across screen sizes. *Files:* `activity_main.xml`. *New concept:* `layout_constraintVertical_bias`, `ConstraintLayout` guidelines.
 - **Local conversion history with Room** — save each conversion to a small local database. *Files:* new `ConversionEntity.kt`, `ConversionDao.kt`, `AppDatabase.kt`. *New concept:* Room, DAOs, SQLite under the hood.
 
 ### 🔴 Advanced additions — this is where the "big app" concepts belong
@@ -285,7 +337,9 @@ Every step above maps directly to a concept from Section 4 — the lifecycle hoo
 ## 8. Further Reading
 
 - [Android Activity Lifecycle — official docs](https://developer.android.com/guide/components/activities/activity-lifecycle)
+- [ConstraintLayout guide](https://developer.android.com/develop/ui/views/layout/constraint-layout)
 - [Kotlin `lateinit` — official docs](https://kotlinlang.org/docs/properties.html#late-initialized-properties-and-variables)
+- [`inputType` reference](https://developer.android.com/reference/android/widget/TextView#attr_android:inputType)
 - [Edge-to-edge display guide](https://developer.android.com/develop/ui/views/layout/edge-to-edge)
 - [ViewModel overview](https://developer.android.com/topic/libraries/architecture/viewmodel)
 - [Retrofit](https://square.github.io/retrofit/)
@@ -294,4 +348,4 @@ Every step above maps directly to a concept from Section 4 — the lifecycle hoo
 
 ---
 
-*Last updated: September 4th 2026*
+*Last updated: 4th September 2026*
